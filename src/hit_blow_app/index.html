@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <script
+      src="https://unpkg.com/react@16/umd/react.development.js"
+      crossorigin
+    ></script>
+    <script
+      src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"
+      crossorigin
+    ></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-router/5.1.2/react-router.min.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="text/babel">
+      function useGames() {
+        const [games, setGames] = React.useState([]);
+        const [reloadCount, reloadCountUpdate] = React.useState(0);
+        React.useEffect(() => {
+          fetch("/games").then(async (res) => {
+            const result = await res.json();
+            setGames(result);
+          });
+        }, [reloadCount]);
+        return {
+          games,
+          reload() {
+            reloadCountUpdate(reloadCount + 1);
+          },
+        };
+      }
+
+      function useGame(id) {
+        const [game, setGame] = React.useState();
+        React.useEffect(() => {
+          fetch(`/games/${id}`).then(async (res) => {
+            const result = await res.json();
+            setGame(result);
+          });
+        }, [id, setGame]);
+        return {
+          game,
+        };
+      }
+
+      function Games({ onSelectGameId }) {
+        const { games, reload } = useGames();
+        const [title, setTitle] = React.useState();
+        const [question, setQuestion] = React.useState();
+        const register = React.useCallback(() => {
+          fetch("games", {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ title, question }),
+          }).then(async (res) => {
+            const { id } = await res.json();
+            console.log({ id });
+            onSelectGameId(id);
+          });
+        }, [title, question, reload]);
+        const deleteGame = React.useCallback((id) => {
+          fetch(`games/${id}`, {
+            method: "DELETE",
+            headers: {
+              Accept: "application/json",
+            },
+          }).then(() => {
+            reload();
+          });
+        }, [reload]);
+        return (
+          <div>
+            <div>
+              <button onClick={reload}>reload</button>
+            </div>
+            <ul>
+              {games.map((g) => (
+                <li key={g.id}>{g.title}
+                  <button onClick={() => onSelectGameId(g.id)}>join</button>
+                  <button onClick={() => deleteGame(g.id)}>delete</button>
+                </li>
+              ))}
+            </ul>
+            <div>
+              <label>
+                title
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </label>
+              <label>
+                question
+                <input
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                />
+              </label>
+              <button onClick={register}>register</button>
+            </div>
+          </div>
+        );
+      }
+
+      function GameApp({ gameId, onBack }) {
+        const { game } = useGame(gameId);
+        const [name, setName] = React.useState(localStorage.getItem('name'));
+        const [joined, setJoined] = React.useState();
+        const [message, setMessage] = React.useState();
+        const [answerValue, setAnswerValue] = React.useState();
+        const [answers, setAnswers] = React.useState([]);
+        const [result, setResult] = React.useState();
+        const ws = React.useMemo(() => {
+          return new WebSocket(`ws://${location.host}/games/${gameId}/ws`);
+        }, [gameId]);
+        const answer = React.useCallback(() => {
+          ws.send(JSON.stringify({
+            command: 'answer',
+            payload: {
+              answer: answerValue,
+            },
+          }));
+          setAnswerValue('');
+        }, [ws, answerValue, setAnswerValue]);
+        const join = React.useCallback(() => {
+          ws.send(JSON.stringify({
+            command: 'join',
+            payload: {
+              name,
+              role: 'participant',
+            },
+          }));
+          localStorage.setItem('name', name)
+          setJoined(true);
+        }, [ws, name]);
+        React.useEffect(() => {
+          ws.onmessage = (e) => {
+            const data = JSON.parse(e.data);
+            if (data.message) {
+              setMessage(data.message);
+            } else {
+              switch (data.type) {
+                case "answers":
+                  setAnswers(data.answers);
+                  break;
+                case "result":
+                  setResult(data);
+                  break;
+              }
+            }
+          };
+          return () => {
+            ws.close();
+          };
+        }, [ws, setAnswers, setMessage, setResult]);
+        return (
+          <div>
+            {game ? (
+              <div>
+                <h1>{game.title}</h1>
+                <label>
+                  name
+                <input
+                    disabled={joined}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </label>
+                <button disabled={joined} onClick={join}>join</button>
+
+                {joined ? (
+                  <div>
+                    <div>
+                      {message ? <p>{message}</p> : ''}
+                      <h2>Answers</h2>
+                      {result ? <p style={{ color: result.result === 'Win' ? 'red': 'blue'}}>{result.result}</p> : ''}
+
+                      <ol>
+                        {answers.map((answer, index) => (
+                          <li key={index} style={{ backgroundColor: answer[0] === name ? 'red' : null }}>
+                            {answer[1]}(Name: {answer[0]}, Hits: {answer[2]}, Blows: {answer[3]})
+                          </li>
+                        ))}
+                      </ol>
+                      <h2>Your Answer</h2>
+                      <label>
+                        answer
+                      <input
+                          value={answerValue}
+                          onChange={(e) => setAnswerValue(e.target.value)}
+                        />
+                      </label>
+                      <button onClick={answer}>answer</button>
+                    </div>
+                  </div>
+                ) : 'Name Required'}
+
+              </div>
+            ) : 'Loading'}
+            <button onClick={onBack}>back</button>
+          </div>
+        )
+      }
+
+      function App() {
+        const [gameId, setGameId] = React.useState(null)
+        return (
+          <div>
+            {gameId ? <GameApp gameId={gameId} onBack={() => setGameId(null)}/> : <Games onSelectGameId={setGameId}/>}
+          </div>
+        );
+      }
+
+      ReactDOM.render(<App />, document.getElementById("app"));
+    </script>
+  </body>
+</html>
