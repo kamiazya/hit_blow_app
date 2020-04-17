@@ -119,7 +119,7 @@
         const [answers, setAnswers] = React.useState([]);
         const [result, setResult] = React.useState();
         const ws = React.useMemo(() => {
-          return new WebSocket(`ws://${location.host}/games/${gameId}/ws`);
+          return new WebSocket(`${location.protocol.includes('s') ? 'wss:' : 'ws:'}//${location.host}/games/${gameId}/ws`);
         }, [gameId]);
         const answer = React.useCallback(() => {
           ws.send(JSON.stringify({

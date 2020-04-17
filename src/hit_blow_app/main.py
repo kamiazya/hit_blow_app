@@ -1,6 +1,5 @@
 from fastapi import FastAPI, status, WebSocket
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Any, Dict, List, Literal, Optional, Tuple
 from uuid import uuid4, UUID
@@ -22,7 +21,6 @@ class Session:
             self.questioner = ws
         self.participants[name] = ws
         await ws.send_json({"type": "answers", "answers": self.answers})
-
 
     async def answer(self, name: str, answer: str, hits: int, blows: int):
         if name in self.participants:
@@ -54,7 +52,7 @@ class Game(BaseModel):
         return hits, blows
 
 
-class QuestionRegistry(BaseModel):
+class GameRegistry(BaseModel):
     list: List[Game] = []
 
     def all(self) -> Tuple[Game, ...]:
@@ -75,20 +73,20 @@ class QuestionRegistry(BaseModel):
             self.list.remove(g)
 
 
-registry = QuestionRegistry()
+registry = GameRegistry()
 
 app = FastAPI()
-
-
-app.mount(
-    "/static", StaticFiles(directory="static"), name="static",
-)
 
 
 @app.get("/")
 def read_root():
     html = open((Path(__file__) / "../index.html").resolve()).read()
     return HTMLResponse(html)
+
+
+@app.get("/games")
+def get_games():
+    return list(map(lambda g: {"id": g.id, "title": g.title}, registry.all()))
 
 
 @app.post("/games", status_code=status.HTTP_201_CREATED)
@@ -100,9 +98,10 @@ def register_game(game: Game):
 
 
 @app.get("/games/{game_id}")
-def delete_game_by_id(game_id: UUID):
+def get_game_by_id(game_id: UUID):
     game = registry.get_by_id(game_id)
-    return {"id": game.id, "title": game.title}
+    if game is not None:
+        return {"id": game.id, "title": game.title}
 
 
 @app.delete("/games/{game_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -144,9 +143,3 @@ async def websocket_endpoint(game_id: UUID, ws: WebSocket):
                 else:
                     await ws.send_json({"message": "name is reqired."})
                 await ws.send_json({})
-
-
-@app.get("/games")
-def get_games():
-    return list(map(lambda g: {"id": g.id, "title": g.title}, registry.all()))
-    # return registry.all()
