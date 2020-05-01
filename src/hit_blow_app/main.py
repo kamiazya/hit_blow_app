@@ -107,6 +107,8 @@ def get_game_by_id(game_id: UUID):
 @app.delete("/games/{game_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_game_by_id(game_id: UUID):
     registry.delete_by_id(game_id)
+    if game_id in sessions:
+        del sessions[game_id]
 
 
 @app.websocket("/games/{game_id}/ws")
@@ -134,12 +136,14 @@ async def websocket_endpoint(game_id: UUID, ws: WebSocket):
                     name = payload["name"]
                     role = payload["role"]
                     await session.join_as(payload["name"], role, ws)
+                    await session.broadcast({"message": f"{payload['name']} joined."})
             elif command == "answer":
                 if "answer" in payload and type(payload["answer"]) is str and name is not None:
                     answer: str = payload["answer"]
                     hits, blows = game.result(answer)
                     await session.answer(name, answer, hits, blows)
-                    await ws.send_json({"message": f"Hello {name}!"})
+                    if hits == 4:
+                        await session.broadcast({"message": f"{payload['name']} wins this game!"})
                 else:
                     await ws.send_json({"message": "name is reqired."})
                 await ws.send_json({})
